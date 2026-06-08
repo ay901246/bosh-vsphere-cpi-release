@@ -17,6 +17,18 @@ source source-ci/ci/shared/tasks/setup-env-proxy.sh
 
 cp director-config/* director-state/
 
+# Extract the BOSH Director IP for debugging
+DIRECTOR_IP="$(bosh int director-state/director.yml \
+  --path=/instance_groups/name=bosh/networks/name=default/static_ips/0 | tr -d '[:space:]')"
+
+# We want ALL communication to the director IP to route through the secure
+# BOSH_ALL_PROXY (SSH SOCKS5 tunnel) to avoid corporate transparent proxies
+# or firewalls on the underlay from intercepting/SSL-bumping the connections
+# (especially port 6868). We must NOT add DIRECTOR_IP to NO_PROXY, because
+# adding it to NO_PROXY would cause Go to ignore BOSH_ALL_PROXY and attempt
+# direct connection, which gets intercepted.
+export BOSH_LOG_LEVEL=debug
+
 # The deployment manifest references releases and stemcells relative to itself
 mkdir -p director-state/{stemcell,bosh-release,cpi-release}
 cp stemcell/*.tgz director-state/stemcell/
@@ -28,22 +40,36 @@ export BOSH_LOG_PATH="$(mktemp /tmp/bosh-cli-log.XXXXXX)"
 finish() {
   echo 'Final state of BOSH director deployment:' 1>&2
   echo '========================================' 1>&2
-  cat director-state/director-state.json 1>&2
+  if [ -f director-state/director-state.json ]; then
+    cat director-state/director-state.json 1>&2
+  fi
   echo 1>&2
   echo '========================================' 1>&2
 
-  rm -f "$BOSH_LOG_PATH"
+  if [ -f "$BOSH_LOG_PATH" ]; then
+    echo "BOSH CLI Debug Log:" 1>&2
+    echo "========================================" 1>&2
+    cat "$BOSH_LOG_PATH" 1>&2
+    echo "========================================" 1>&2
+    rm -f "$BOSH_LOG_PATH"
+  fi
 
-  cp -r ~/.bosh director-state
+  if [ -d ~/.bosh ]; then
+    cp -r ~/.bosh director-state || true
+  fi
 }
 trap finish EXIT
 
+echo "DEBUG PROXY ENVIRONMENT:" 1>&2
+echo "DIRECTOR_IP: '${DIRECTOR_IP}'" 1>&2
+env | grep -i proxy 1>&2 || true
+echo "========================" 1>&2
+
 echo Deploying BOSH director ... 1>&2
-bosh create-env --vars-store director-state/creds.yml director-state/director.yml
+HTTP_PROXY= HTTPS_PROXY= http_proxy= https_proxy= bosh create-env --vars-store director-state/creds.yml director-state/director.yml
 status=$?
 if [ $status -ne 0 ]; then
   echo "BOSH director deployment failed!" 1>&2
-  cat "$BOSH_LOG_PATH" 1>&2
   exit $status
 fi
 

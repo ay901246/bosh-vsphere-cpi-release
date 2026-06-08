@@ -3,7 +3,8 @@
 source environment/metadata
 export HTTP_PROXY="http://$BOSH_VSPHERE_JUMPER_HOST:80"
 export HTTPS_PROXY="http://$BOSH_VSPHERE_JUMPER_HOST:80"
-export NO_PROXY=.amazonaws.com,rubygems.org,gcr.io
+export NO_PROXY=.amazonaws.com,rubygems.org,gcr.io,localhost,127.0.0.1
+export no_proxy=.amazonaws.com,rubygems.org,gcr.io,localhost,127.0.0.1
 
 private_key_path=$(mktemp)
 echo -e "${JUMPBOX_PRIVATE_KEY}" > ${private_key_path}
